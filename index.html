@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KWIX</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"></script>
+</head>
+
+<body>
+    <p>Click the button to get your coordinates.</p>
+
+    <button onclick="getLocation()">GPS</button>
+    <button onclick="getUser()">Heart Rate</button>
+    <input type="text" name="" id="">
+    <a href="">Connect Your Account</a>
+
+    <p id="demo"></p>
+    <p id="hearRate"></p>
+
+    <script>
+        const url = new URL(window.location.href)
+        const redirectUri = url.origin + "/"
+        const code = url.searchParams.get("code");
+        const codeVerifier = "01234567890123456789012345678901234567890123456789"
+        const codeChallenge = window.CryptoJS.enc.Base64.stringify((window.CryptoJS.SHA256(codeVerifier)))
+            .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+        let clientIdInput = document.querySelector("input")
+        let clientId = clientIdInput.value
+        let authorizeUrl;
+        let accessToken;
+        let x = document.getElementById("demo");
+        let heartRate = document.getElementById("hearRate");
+        let keepCalling = false;
+        clientIdInput.addEventListener('input', (event) => {
+            clientId = document.querySelector("input").value
+            localStorage.setItem('clientId', clientId);
+            authorizeUrl = `https://www.fitbit.com/oauth2/authorize?client_id=${clientId}&response_type=code
+&redirect_uri=${redirectUri}
+&code_challenge=${codeChallenge}&code_challenge_method=S256
+&scope=activity%20heartrate%20nutrition%20oxygen_saturation
+%20respiratory_rate%20settings%20sleep%20temperature%20weight`
+            console.log(authorizeUrl)
+            document.querySelector("a").href = authorizeUrl
+        })
+
+        if (code || clientId) {
+            try {
+                let clientId = localStorage.getItem("clientId")
+                const params = new URLSearchParams()
+                params.append("client_id", `${clientId}`)
+                params.append("code", code)
+                params.append("code_verifier", codeVerifier)
+                params.append("grant_type", "authorization_code")
+                params.append("redirect_uri", `${redirectUri}`)
+
+
+                const tokenUrl = "https://api.fitbit.com/oauth2/token"
+                axios.post(tokenUrl, params,
+                    {
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        }
+                    }
+                )
+                    .then(res => {
+                        console.log(res.data);
+                        accessToken = res.data.access_token;
+                        axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+                    })
+                    .catch(e => console.error(e.response.data.errors[0]))
+            } catch (e) {
+                console.error(e.response.data.errors)
+            }
+        }
+
+
+
+        function errorHandler(err) {
+            if (err.code == 1) {
+                alert("Error: Access is denied!");
+            }
+            else if (err.code == 2) {
+                alert("Error: Position is unavailable!");
+            }
+        }
+
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(showPosition, errorHandler);
+                setInterval(function () {
+                    navigator.geolocation.getCurrentPosition(showPosition, errorHandler);
+                    getUser().then(() => console.log("success"))
+                }, 10000);
+            } else {
+                x.innerHTML = "Geolocation is not supported by this browser.";
+            }
+        }
+
+
+        function showPosition(position) {
+            x.innerHTML = `${position.timestamp}
+            <br>Speed: ${position.coords.speed}
+            <br>Latitude: ${position.coords.latitude}
+                <br>Longitude: ${position.coords.longitude}
+                <br>Altitude: ${position.coords.altitude}
+                `;
+        }
+
+        async function getUser() {
+            try {
+                const url = `https://api.fitbit.com/1/user/-/activities/heart/date/today/today/1sec/time/00:00/23:59.json`
+                const response = await axios.get(url);
+                heartRate.innerHTML = JSON.stringify(response.data["activities-heart-intraday"]["dataset"]);
+            } catch (error) {
+                console.error(error.data.response);
+            }
+        }
+    </script>
+</body>
+
+</html>
