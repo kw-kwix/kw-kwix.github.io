@@ -8,11 +8,10 @@
     <title>KWIX</title>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
-    <p>Click the button to get your coordinates.</p>
-
     <button onclick="getLocation()">GPS</button>
     <button onclick="getUser()">Heart Rate</button>
     <input type="text" name="" id="">
@@ -20,64 +19,99 @@
 
     <p id="demo"></p>
     <p id="hearRate"></p>
-
+    <div>
+        <canvas id="myChart"></canvas>
+    </div>
     <script>
-        const url = new URL(window.location.href)
-        const redirectUri = url.origin + "/"
-        const code = url.searchParams.get("code");
-        const codeVerifier = "01234567890123456789012345678901234567890123456789"
-        const codeChallenge = window.CryptoJS.enc.Base64.stringify((window.CryptoJS.SHA256(codeVerifier)))
-            .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-        let clientIdInput = document.querySelector("input")
-        let clientId = clientIdInput.value
-        let authorizeUrl;
-        let accessToken;
-        let x = document.getElementById("demo");
-        let heartRate = document.getElementById("hearRate");
-        let keepCalling = false;
-        clientIdInput.addEventListener('input', (event) => {
-            clientId = document.querySelector("input").value
-            localStorage.setItem('clientId', clientId);
-            authorizeUrl = `https://www.fitbit.com/oauth2/authorize?client_id=${clientId}&response_type=code
+        const createAuthUrl = (clientId, redirectUri, codeChallenge) => `https://www.fitbit.com/oauth2/authorize?client_id=${clientId}&response_type=code
 &redirect_uri=${redirectUri}
 &code_challenge=${codeChallenge}&code_challenge_method=S256
 &scope=activity%20heartrate%20nutrition%20oxygen_saturation
-%20respiratory_rate%20settings%20sleep%20temperature%20weight`
-            console.log(authorizeUrl)
-            document.querySelector("a").href = authorizeUrl
-        })
+%20respiratory_rate%20settings%20sleep%20temperature%20weight`;
 
-        if (code || clientId) {
-            try {
-                let clientId = localStorage.getItem("clientId")
-                const params = new URLSearchParams()
-                params.append("client_id", `${clientId}`)
-                params.append("code", code)
-                params.append("code_verifier", codeVerifier)
-                params.append("grant_type", "authorization_code")
-                params.append("redirect_uri", `${redirectUri}`)
+        const codeVerifier = "01234567890123456789012345678901234567890123456789";
+        const codeChallenge = window.CryptoJS.enc.Base64.stringify((window.CryptoJS.SHA256(codeVerifier)))
+            .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+        const url = new URL(window.location.href);
+        const redirectUri = url.origin + "/";
 
+        let authorizeUrl;
+        let heartRateArr;
+        let clientIdInput = document.querySelector("input");
+        let clientId = sessionStorage.getItem("clientId");
 
-                const tokenUrl = "https://api.fitbit.com/oauth2/token"
-                axios.post(tokenUrl, params,
-                    {
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        }
-                    }
-                )
-                    .then(res => {
-                        console.log(res.data);
-                        accessToken = res.data.access_token;
-                        axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
-                    })
-                    .catch(e => console.error(e.response.data.errors[0]))
-            } catch (e) {
-                console.error(e.response.data.errors)
-            }
+        if (clientId) {
+            clientIdInput.value = clientId;
+            authorizeUrl = createAuthUrl(clientId, redirectUri, codeChallenge);
         }
 
+        const data = {
+            datasets: [{
+                label: 'Real Heart Rate',
+                backgroundColor: 'rgb(255, 99, 132)',
+                borderColor: 'rgb(255, 99, 132)',
+                data: heartRateArr,
+            }]
+        };
 
+        const config = {
+            type: 'line',
+            data: data,
+            options: {
+                parsing: {
+                    xAxisKey: 'time',
+                    yAxisKey: 'value'
+                }
+            }
+        };
+
+        const myChart = new Chart(
+            document.getElementById('myChart'),
+            config
+        );
+
+        const code = url.searchParams.get("code");
+
+        document.querySelector("a").href = authorizeUrl;
+
+        let x = document.getElementById("demo");
+        let heartRate = document.getElementById("hearRate");
+        let keepCalling = false;
+
+        clientIdInput.addEventListener('input', (event) => {
+            clientId = document.querySelector("input").value;
+            sessionStorage.setItem('clientId', clientId);
+            authorizeUrl = createAuthUrl(clientId, redirectUri, codeChallenge);
+            document.querySelector("a").href = authorizeUrl;
+        })
+
+        const login = (params) =>
+            axios.post("https://api.fitbit.com/oauth2/token", params, {
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            });
+
+        if (code && clientId) {
+            try {
+                let clientId = sessionStorage.getItem("clientId");
+                const params = new URLSearchParams()
+                params.append("client_id", `${clientId}`);
+                params.append("code", code);
+                params.append("code_verifier", codeVerifier);
+                params.append("grant_type", "authorization_code");
+                params.append("redirect_uri", `${redirectUri}`);
+
+                login(params)
+                    .then(res => {
+                        sessionStorage.setItem("fitbitAccessToken", res.data.access_token);
+                        window.location = "/";
+                    })
+                    .catch(e => console.error(e.response.data.errors[0]));
+            } catch (e) {
+                console.error(e);
+            }
+        }
 
         function errorHandler(err) {
             if (err.code == 1) {
@@ -110,15 +144,30 @@
                 `;
         }
 
+        function addData(chart, data) {
+            chart.data.datasets[0].data = data;
+            console.log(chart.data.datasets)
+            chart.update();
+        }
+
         async function getUser() {
             try {
                 const url = `https://api.fitbit.com/1/user/-/activities/heart/date/today/today/1sec/time/00:00/23:59.json`
-                const response = await axios.get(url);
-                heartRate.innerHTML = JSON.stringify(response.data["activities-heart-intraday"]["dataset"]);
+                const accessToken = sessionStorage.getItem("fitbitAccessToken")
+                const response = await axios.get(url, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                heartRateArr = response.data["activities-heart-intraday"]["dataset"];
+                // heartRate.innerHTML = JSON.stringify(heartRateArr);
+                addData(myChart, heartRateArr)
             } catch (error) {
                 console.error(error.data.response);
             }
         }
+
+
     </script>
 </body>
 
