@@ -23,6 +23,41 @@
         <canvas id="myChart"></canvas>
     </div>
     <script>
+        /**
+        * Calculates the haversine distance between point A, and B.
+        * Reference
+        * - https://stackoverflow.com/questions/14560999/using-the-haversine-formula-in-javascript
+        * @param {number[]} latlngA [lat, lng] point A
+        * @param {number[]} latlngB [lat, lng] point B
+        * @param {boolean} isMiles If we are using miles, else km.
+        */
+        const haversineDistance = ([lat1, lon1], [lat2, lon2], isMiles = false) => {
+            const toRadian = angle => (Math.PI / 180) * angle;
+            const distance = (a, b) => (Math.PI / 180) * (a - b);
+            const RADIUS_OF_EARTH_IN_KM = 6371;
+
+            const dLat = distance(lat2, lat1);
+            const dLon = distance(lon2, lon1);
+
+            lat1 = toRadian(lat1);
+            lat2 = toRadian(lat2);
+
+            // Haversine Formula
+            const a =
+                Math.pow(Math.sin(dLat / 2), 2) +
+                Math.pow(Math.sin(dLon / 2), 2) * Math.cos(lat1) * Math.cos(lat2);
+            const c = 2 * Math.asin(Math.sqrt(a));
+
+            let finalDistance = RADIUS_OF_EARTH_IN_KM * c;
+
+            if (isMiles) {
+                finalDistance /= 1.60934;
+            }
+
+            return finalDistance;
+        };
+    </script>
+    <script>
         const createAuthUrl = (clientId, redirectUri, codeChallenge) => `https://www.fitbit.com/oauth2/authorize?client_id=${clientId}&response_type=code
 &redirect_uri=${redirectUri}
 &code_challenge=${codeChallenge}&code_challenge_method=S256
@@ -37,6 +72,7 @@
 
         let authorizeUrl;
         let heartRateArr;
+        let originPosition = [0, 0];
         let clientIdInput = document.querySelector("input");
         let clientId = sessionStorage.getItem("clientId");
 
@@ -136,17 +172,29 @@
 
 
         function showPosition(position) {
+
+            let distance = 0;
+            let speed_mps = 0;
+            const {latitude, longitude} = position.coords
+            if (originPosition[0] != 0) {
+                distance = haversineDistance([originPosition[0],originPosition[1]], [latitude, longitude]);
+                let time = (position.timestamp - originPosition[2])/1000;
+                speed_mps = distance/time;
+            }
+            originPosition[0] = latitude;
+            originPosition[1] = longitude;
+            originPosition[2] = position.timestamp;
             x.innerHTML = `${position.timestamp}
-            <br>Speed: ${position.coords.speed}
-            <br>Latitude: ${position.coords.latitude}
-                <br>Longitude: ${position.coords.longitude}
+            <br>Speed: ${speed_mps}
+            <br>Latitude: ${latitude}
+                <br>Longitude: ${longitude}
                 <br>Altitude: ${position.coords.altitude}
+                <br>Distance: ${distance}
                 `;
         }
 
         function addData(chart, data) {
             chart.data.datasets[0].data = data;
-            console.log(chart.data.datasets)
             chart.update();
         }
 
@@ -160,7 +208,6 @@
                     }
                 });
                 heartRateArr = response.data["activities-heart-intraday"]["dataset"];
-                // heartRate.innerHTML = JSON.stringify(heartRateArr);
                 addData(myChart, heartRateArr)
             } catch (error) {
                 console.error(error.data.response);
